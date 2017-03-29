@@ -80,7 +80,7 @@ def tf_idf(path_to_data_sets, category, test_example):
 
     counter = 0
     for key, value in sorted(term_list.items(), key=lambda x: x[1], reverse=True):
-        output_file.write(str(key) + '\t' + value + '\n')
+        output_file.write(key + '\t' + str(value).encode('utf8') + '\n')
         counter += 1
         if counter > 99:    # I only want the top 100 results
             break

@@ -33,7 +33,7 @@ df_cal = df_cal.filter(df_cal.available == 't')
 # CLEANING THE DATA:
 df_list = sqlContext.createDataFrame(listings.map(lambda line: line.split('\t')), header)  # creating a dataframe
 header = ['id', 'amenities', 'room_type', 'latitude', 'longitude', 'price',
-          'name']  # I now remove unnecessary columns
+          'name', 'accommodates']  # I now remove unnecessary columns
 df_list = df_list.select([column for column in df_list.columns if column in header])
 
 # I define a UDF to strip the price column of the "$"-sign and cast the values to doubles
@@ -65,24 +65,19 @@ def alternative_listings(listing_id, date, price_sensitivity, radius, n):
     amenities = str(chosen_listing[4]).split(',')
 
     # A UDF for using the haversine function for filtering on my dataframe
-    is_within_radius = UserDefinedFunction(lambda x, y: True if haversine(lat, lon, x, y) <= radius else False, BooleanType())
     distance_udf = UserDefinedFunction(lambda x, y: haversine(lat, lon, x, y), DoubleType())
 
-    # I filter all the by the constraints specified in the task, and thus find alternative listings. As Spark uses
-    # lazy functions I do not mind to care about the order of my filters with regard to runtime
+    # I filter all the by the constraints specified in the task, and thus find valid alternative listings
     alternatives = df_list.join(df_cal, df_list.id == df_cal.listing_id) \
-        .select('id', 'name', 'amenities', 'price', 'latitude', 'longitude', 'room_type') \
+        .select('id', 'name', 'amenities', 'price', 'latitude', 'longitude', 'room_type',
+                (distance_udf(df_list.latitude, df_list.longitude)).alias('distance'), 'accommodates') \
         .where(df_cal.date == date) \
         .where(df_list.room_type == type_of_room) \
-        .where(is_within_radius(df_list.latitude, df_list.longitude)) \
-        .where(df_list.price <= max_price) \
-        .select('id', 'name', 'amenities', (distance_udf(df_list.latitude, df_list.longitude)).alias('distance'),
-                'price', 'latitude', 'longitude').collect()
+        .where(df_list.price <= max_price)
 
-    # print for testing purposes
-    print "# Rows:", len(alternatives)
-    print alternatives[0]
-    print str(alternatives[0][2]).split(',')
+    # I split the filtering up simply to be able to access the renamed distance column
+    alternatives = alternatives.where(alternatives.distance <= radius) \
+        .select('id', 'name', 'amenities', 'distance', 'price', 'latitude', 'longitude', 'accommodates').collect()
 
     # I create a dict with all my results and a counter of similar amenities as in the input listing
     result_list = {}
@@ -91,24 +86,27 @@ def alternative_listings(listing_id, date, price_sensitivity, radius, n):
         for word in row[2].split(','):
             if word in amenities:
                 counter += 1
-        result_list[row[0]] = [row[1], counter, row[3], row[4], row[5], row[6]]
+        result_list[row[0]] = [counter, row[1], row[3], row[4], row[5], row[6], row[7]]
 
-    # Creating the result file writing my results to it
+    # Creating the result file and writing my n results with highest number of common amenities to it
     output_file = codecs.open(PATH + "alternatives.tsv", 'w', encoding='utf8')
     output_file.write('listing_id' + '\t' + 'listing_name' + '\t' + 'number_of_common_amenities' + '\t' +
-                      'distance' + '\t' + 'price' + '\t' + 'lat' + '\t' + 'lon' + '\n')
+                      'distance' + '\t' + 'price' + '\t' + 'lat' + '\t' + 'lon' + '\t' + 'accommodates' + '\n')
     counter = 0
-    for key, value in sorted(result_list.items(), key=lambda x: x[1], reverse=True):
-        # output_file.write((key) + '\t' + "counter" + '\t' + str(value[1]) + '\t' +
-        #                   str(value[2]) + '\t' + str(value[3]) + '\t' + str(value[4]) + '\t' + str(value[5]) + '\n')
-        output_file.write((key) + '\t' + value[0] + '\t' + value[1] + '\t' +
-                          value[2] + '\t' + value[3] + '\t' + value[4] + '\t' + value[5] + '\n')
+    for key, value in sorted(result_list.items(), key=lambda x: x[1], reverse=True):    # sort by common amenities
+        output_file.write(str(key).encode('utf8') + '\t' + value[1] + '\t' +
+                          str(value[0]).encode('utf8') + '\t' + str(value[2]).encode('utf8') + '\t' +
+                          str(value[3]).encode('utf8') + '\t' + str(value[4]).encode('utf8') + '\t' +
+                          str(value[5]).encode('utf8') + '\t' + str(value[6]).encode('utf8') + '\n')
         counter += 1
         if counter > int(n)-1:    # I only want the top n results
             break
 
     print "\n###\n"
     print "The analysis is complete.", counter, "alternative listings can be found in alternatives.tsv.\n"
+
+
+# --------------------------------------------------------------------
 
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -125,7 +123,7 @@ def haversine(lat1, lon1, lat2, lon2):
 
 # MAIN-function
 if __name__ == '__main__':
-    # alternative_listings(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
-    alternative_listings("4717459", "2016-12-15", 30, 20, 50)     # for faster testing
+    alternative_listings(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+    # alternative_listings("4717459", "2016-12-15", 30, 20, 50)     # for faster testing
 
 sc.stop()
