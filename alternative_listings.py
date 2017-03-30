@@ -70,14 +70,14 @@ def alternative_listings(listing_id, date, price_sensitivity, radius, n):
     # I filter all the by the constraints specified in the task, and thus find valid alternative listings
     alternatives = df_list.join(df_cal, df_list.id == df_cal.listing_id) \
         .select('id', 'name', 'amenities', 'price', 'latitude', 'longitude', 'room_type',
-                (distance_udf(df_list.latitude, df_list.longitude)).alias('distance'), 'accommodates') \
+                (distance_udf(df_list.latitude, df_list.longitude)).alias('distance')) \
         .where(df_cal.date == date) \
         .where(df_list.room_type == type_of_room) \
         .where(df_list.price <= max_price)
 
     # I split the filtering up simply to be able to access the renamed distance column
     alternatives = alternatives.where(alternatives.distance <= radius) \
-        .select('id', 'name', 'amenities', 'distance', 'price', 'latitude', 'longitude', 'accommodates').collect()
+        .select('id', 'name', 'amenities', 'distance', 'price').collect()
 
     # I create a dict with all my results and a counter of similar amenities as in the input listing
     result_list = {}
@@ -86,18 +86,17 @@ def alternative_listings(listing_id, date, price_sensitivity, radius, n):
         for word in row[2].split(','):
             if word in amenities:
                 counter += 1
-        result_list[row[0]] = [counter, row[1], row[3], row[4], row[5], row[6], row[7]]
+        result_list[row[0]] = [counter, row[1], row[3], row[4]]
 
     # Creating the result file and writing my n results with highest number of common amenities to it
     output_file = codecs.open(PATH + "alternatives.tsv", 'w', encoding='utf8')
     output_file.write('listing_id' + '\t' + 'listing_name' + '\t' + 'number_of_common_amenities' + '\t' +
-                      'distance' + '\t' + 'price' + '\t' + 'lat' + '\t' + 'lon' + '\t' + 'accommodates' + '\n')
+                      'distance' + '\t' + 'price' + '\t' + '\n')
     counter = 0
     for key, value in sorted(result_list.items(), key=lambda x: x[1], reverse=True):    # sort by common amenities
         output_file.write(str(key).encode('utf8') + '\t' + value[1] + '\t' +
                           str(value[0]).encode('utf8') + '\t' + str(value[2]).encode('utf8') + '\t' +
-                          str(value[3]).encode('utf8') + '\t' + str(value[4]).encode('utf8') + '\t' +
-                          str(value[5]).encode('utf8') + '\t' + str(value[6]).encode('utf8') + '\n')
+                          str(value[3]).encode('utf8') + '\n')
         counter += 1
         if counter > int(n)-1:    # I only want the top n results
             break
